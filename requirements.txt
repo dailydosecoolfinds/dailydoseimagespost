@@ -1,0 +1,4 @@
+requests
+praw
+gspread
+oauth2client
