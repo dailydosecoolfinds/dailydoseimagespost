@@ -4,7 +4,7 @@ name: Sovrn Auto Poster
 on:
   schedule:
     # Se ejecuta cada 6 horas (Horario UTC)
-    - cron: '0 */6 * * *' 
+    - cron: '0 */6 * * *'
   # También permite ejecutarlo manualmente desde la web
   workflow_dispatch:
 
@@ -14,20 +14,22 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # 1. Descargar tu código
-    - name: Checkout repository
-      uses: actions/checkout@v2
+      # 1. Descargar tu código
+      - name: Checkout repository
+        uses: actions/checkout@v2
 
-    # 2. Instalar Python
-    - name: Set up Python
-      uses: actions/setup-python@v2
-      with:
-        python-version: '3.9'
+      # 2. Instalar Python
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.9'
 
-    # 3. Instalar las librerías (tu archivo requirements.txt)
-    - name: Install dependencies
-      run: pip install -r requirements.txt
+      # 3. Instalar las librerías (tu archivo requirements.txt)
+      - name: Install dependencies
+        run: pip install -r requirements.txt
 
-    # 4. Ejecutar tu bot
-    - name: Run Sovrn Bot
-      run: python bot_sheet_final.py
+      # 4. Ejecutar tu bot con las credenciales
+      - name: Run Sovrn Bot
+        env:
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+        run: python bot_sheet_final.py
