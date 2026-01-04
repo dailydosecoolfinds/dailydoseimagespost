@@ -21,7 +21,7 @@ SOVRN_HEADERS = {
 # ==========================================
 # 2. CONFIGURACIÓN GOOGLE SHEETS
 # ==========================================
-GSPREAD_CREDENTIALS_FILE = "credentials.json"
+GSPREAD_CREDENTIALS_FILE = "credentials.json" # Solo para local, en Actions se usa env
 SHEET_KEY = "1AfB-Sdn9ZgZXqfHLDFiZSmIap9WeXnwVzrNT-zKctlM"
 SHEET_NAME = "DailyDoseCoolFinds_Content"
 
@@ -37,7 +37,7 @@ FLAIR_ID = "463a2860-dd0e-11f0-a489-92c8b64e1845"
 # ==========================================
 # 4. CONFIGURACIÓN DE CONTENIDO & HISTORIAL
 # ==========================================
-# En Render usamos la Hoja de Google como Historial para persistencia
+# En GitHub Actions usamos la Hoja de Google como Historial para persistencia
 CONTEXT_URLS = [
     "https://www.youtube.com/@EvateExplica",
     "https://www.wired.com/gear/",
@@ -53,11 +53,8 @@ CONTEXT_URLS = [
 def get_history_from_sheet(worksheet):
     """Lee la columna B de la hoja para saber qué productos ya hemos posteado"""
     try:
-        # Asumimos que el historial empieza en la fila 2
-        # Obtenemos todos los nombres de la columna B (índice 1 porque A es 0)
-        # Limitamos a las últimas 50 filas para ahorrar tiempo
+        # Obtenemos todos los nombres de la columna B (índice 1)
         rows = worksheet.get("B2:B50")
-        # rows devuelve una lista de listas [['Nombre1'], ['Nombre2']]
         return set([row[0] for row in rows if row])
     except Exception as e:
         print(f"⚠️ No se pudo leer historial de la hoja: {e}")
@@ -79,7 +76,7 @@ def get_random_product(used_names):
             all_products = r.json()
             random.shuffle(all_products)
             
-            # Filtramos: Precio > $20 Y Nombre NO usado (usando la hoja como historial)
+            # Filtramos: Precio > $20 Y Nombre NO usado
             candidates = [
                 p for p in all_products 
                 if float(p.get('salePrice', 0)) > 20 and p['name'] not in used_names
@@ -129,7 +126,7 @@ def post_to_reddit_image(product, image_path):
             client_id=REDDIT_CLIENT_ID,
             client_secret=REDDIT_CLIENT_SECRET,
             password=REDDIT_PASSWORD,
-            user_agent=f"script:RenderBot:v1.0 (by /u/{REDDIT_USERNAME})",
+            user_agent=f"script:GitHubActionsBot:v1.0 (by /u/{REDDIT_USERNAME})",
             username=REDDIT_USERNAME
         )
         
@@ -159,11 +156,33 @@ def post_to_reddit_image(product, image_path):
 if __name__ == "__main__":
     print(f"🚀 Bot iniciando a las {datetime.now().strftime('%H:%M:%S')}")
     
-    # 1. Conectar Google Sheets
+    # 1. CONEXIÓN GOOGLE SHEETS (FIX PARA GITHUB ACTIONS)
     try:
-        gc = gspread.service_account(filename=GSPREAD_CREDENTIALS_FILE)
+        # Si estamos en GitHub Actions (variable de entorno existe), usarla
+        google_json_str = os.getenv('GOOGLE_CREDENTIALS_JSON')
+        
+        if google_json_str:
+            print("✅ Usando credenciales de GitHub Actions Secrets...")
+            # Decodificar JSON para arreglar el error de "Invalid JWT Signature"
+            try:
+                creds_dict = json.loads(google_json_str)
+                with open('temp_creds.json', 'w') as f:
+                    json.dump(creds_dict, f)
+                # Conectar usando el archivo temporal decodificado
+                gc = gspread.service_account(filename='temp_creds.json')
+            except Exception as e:
+                print(f"❌ Error decodificando credenciales: {e}")
+                raise
+        else:
+            # Si estamos en local, usar el archivo físico
+            print("✅ Usando archivo credentials.json local...")
+            if not os.path.exists(GSPREAD_CREDENTIALS_FILE):
+                print(f"⚠️ No se encontró {GSPREAD_CREDENTIALS_FILE}")
+            gc = gspread.service_account(filename=GSPREAD_CREDENTIALS_FILE)
+
         sh = gc.open_by_key(SHEET_KEY)
         worksheet = sh.worksheet(SHEET_NAME)
+        print("✅ Conexión Google Sheets exitosa.")
     except Exception as e:
         print(f"❌ Fatal: No se pudo conectar a Google Sheet: {e}")
         exit()
@@ -172,10 +191,10 @@ if __name__ == "__main__":
     used_names = get_history_from_sheet(worksheet)
     print(f"📂 Productos ya posteados: {len(used_names)}")
 
-    # 3. Buscar Producto
+    # 3. Buscar Producto (Con Shuffle y Mercado Amplio)
     prod = get_random_product(used_names)
     if not prod:
-        print("⚠️ No se encontraron productos nuevos o no hay opciones.")
+        print("⚠️ No se encontraron productos nuevos.")
         exit()
 
     print(f"🎯 Producto Elegido: {prod['name']}")
@@ -196,5 +215,7 @@ if __name__ == "__main__":
         # Limpieza
         if os.path.exists(img_file):
             os.remove(img_file)
+        if os.path.exists('temp_creds.json'):
+            os.remove('temp_creds.json')
     
     print("🏁 Ejecución finalizada.")
