@@ -4,6 +4,7 @@ import gspread
 import os
 import json
 import random
+import base64  # IMPORTANTE PARA LA DECODIFICACIÓN
 from datetime import datetime
 
 # ==========================================
@@ -50,7 +51,9 @@ CONTEXT_URLS = [
 # ==========================================
 
 def get_history_from_sheet(worksheet):
+    """Lee la columna B de la hoja para saber qué productos ya hemos posteado"""
     try:
+        # Obtenemos todos los nombres de la columna B (índice 1)
         rows = worksheet.get("B2:B50")
         return set([row[0] for row in rows if row])
     except Exception as e:
@@ -58,8 +61,9 @@ def get_history_from_sheet(worksheet):
         return set()
 
 def get_random_product(used_names):
-    print("🔍 Buscando producto en Sovrn...")
+    print("🔍 Buscando producto en Sovrn (Auto-Mode)...")
     
+    # Context Rotation
     random_page_url = random.choice(CONTEXT_URLS)
     print(f"🧠 Contexto: {random_page_url}")
     
@@ -72,6 +76,7 @@ def get_random_product(used_names):
             all_products = r.json()
             random.shuffle(all_products)
             
+            # Filtramos: Precio > $20 Y Nombre NO usado
             candidates = [
                 p for p in all_products 
                 if float(p.get('salePrice', 0)) > 20 and p['name'] not in used_names
@@ -85,7 +90,7 @@ def get_random_product(used_names):
                 return None
     except Exception as e:
         print(f"❌ Error obteniendo productos: {e}")
-    return None
+        return None
 
 def download_image(url, filename="temp_product.jpg"):
     print(f"📥 Descargando imagen...")
@@ -116,7 +121,7 @@ def update_google_sheet(product, reddit_title, reddit_permalink, worksheet):
         worksheet.append_row(row)
         print("✅ Google Sheet actualizado.")
     except Exception as e:
-        print(f"❌ Error en Google Sheet: {e}")
+        print(f"❌ Error Google Sheet: {e}")
 
 def post_to_reddit_image(product, image_path):
     print("🔌 Conectando a Reddit...")
@@ -147,90 +152,73 @@ Check out full review and best price on my website below.
         )
         
         reddit_permalink = f"https://www.reddit.com{submission.permalink}"
-        print("✅ POST CREADO EN REDDIT.")
+        print("✅ POST CREADO.")
         print(f"🔗 Link: {reddit_permalink}")
         
         update_google_sheet(product, clean_title, reddit_permalink, worksheet)
         return True
     except Exception as e:
-        print(f"❌ Error en Reddit: {e}")
+        print(f"❌ Error Reddit: {e}")
         return False
 
 # ==========================================
-# EJECUCIÓN (Main Block - FIX DEFINITIVO)
+# EJECUCIÓN AUTOMÁTICA (BASE64 MODE)
 # ==========================================
 if __name__ == "__main__":
     print(f"🚀 Bot iniciando a las {datetime.now().strftime('%H:%M:%S')}")
     
-    google_json_str = os.getenv('GOOGLE_CREDENTIALS_JSON')
+    # Variables Globales
+    sh = None
+    worksheet = None
     
-    if not google_json_str:
-        print("❌ ERROR: No se encontró el secreto.")
+    # 1. RECUPERAR CREDENCIALES DE GITHUB SECRETS (MODO BASE64)
+    b64_str = os.getenv('GOOGLE_CREDS_B64')
+    
+    if not b64_str:
+        print("❌ ERROR: No se encontró el secreto GOOGLE_CREDS_B64.")
         exit()
     
     try:
-        print("✅ Procesando credenciales...")
+        print("✅ Decodificando Base64 (Modo Seguro)...")
         
-        # 1. Parsear el JSON
-        creds_dict = json.loads(google_json_str)
+        # Decodificar Base64 directamente a Bytes
+        creds_bytes = base64.b64decode(b64_str)
         
-        # 2. LIMPIAR Y REPARAR LA LLAVE PRIVADA (Fix Incorrect padding)
-        pk = creds_dict['private_key']
-        
-        # A. Eliminar espacios en blanco y saltos extra al principio/final
-        pk = pk.strip()
-        
-        # B. Eliminar la "Pata Duplicada" que causó error en tu archivo
-        # Busca: -----END... + salto + -----END...
-        if '-----END PRIVATE KEY-----\n-----END PRIVATE KEY-----' in pk:
-            print("✅ Detectada 'Pata Duplicada' en Llave Privada. Limpiando...")
-            pk = pk.replace('\n-----END PRIVATE KEY-----\n-----END PRIVATE KEY-----', '')
-        
-        # C. Normalizar saltos de línea para evitar errores de Pading en Mac/Linux
-        pk = pk.replace('\r\n', '\n')
-        
-        # 3. Restaurar la llave limpia
-        creds_dict['private_key'] = pk
-        
-        # 4. Escribir archivo limpio
-        with open('temp_creds.json', 'w') as f:
-            json.dump(creds_dict, f)
+        # Escribir los Bytes directos al archivo
+        with open('temp_creds.json', 'wb') as f:
+            f.write(creds_bytes)
             
-        if os.path.getsize('temp_creds.json') < 100:
-             print("❌ ERROR: El archivo generado está vacío.")
-             raise Exception("JSON File Empty")
-        
-        # 5. Conectar
+        # Conectar usando el archivo generado
         gc = gspread.service_account(filename='temp_creds.json')
         sh = gc.open_by_key(SHEET_KEY)
         worksheet = sh.worksheet(SHEET_NAME)
-        print("✅ Conexión Google Sheets exitosa.")
+        print("✅ Conexión Google Sheets exitosa (Base64).")
         
     except Exception as e:
         print(f"❌ Fatal: {e}")
         exit()
 
-    # 6. Historial
+    # 2. Cargar Historial
     used_names = get_history_from_sheet(worksheet)
     print(f"📂 Productos ya posteados: {len(used_names)}")
 
-    # 7. Buscar
+    # 3. Buscar Producto
     prod = get_random_product(used_names)
     if not prod:
         print("⚠️ No se encontraron productos nuevos.")
         exit()
 
-    print(f"🎯 Producto Elegido: {prod['name']}")
+    print(f"🎯 Producto: {prod['name']}")
 
-    # 8. Descargar Imagen
+    # 4. Descargar Imagen
     img_file = download_image(prod['imageURL'])
     if not img_file:
         exit()
 
-    # 9. Publicar (Automático)
+    # 5. Publicar en Reddit (Automático)
     success = post_to_reddit_image(prod, img_file)
     
-    # 10. Limpieza
+    # 6. Limpieza
     if success:
         if os.path.exists(img_file):
             os.remove(img_file)
