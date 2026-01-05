@@ -4,7 +4,7 @@ import gspread
 import os
 import json
 import random
-import base64  # IMPORTANTE PARA LA DECODIFICACIÓN
+import base64  # Solo necesario si usas el secreto
 from datetime import datetime
 
 # ==========================================
@@ -20,9 +20,11 @@ SOVRN_HEADERS = {
 }
 
 # ==========================================
-# 2. CONFIGURACIÓN GOOGLE SHEETS
+# 2. CONFIGURACIÓN GOOGLE SHEETS (HÍBRIDA)
 # ==========================================
-GSPREAD_CREDENTIALS_FILE = "credentials.json"
+# PATH PARA MAC LOCAL
+LOCAL_CREDS_PATH = "/Users/stuffswag.com/.sovrnbot/credentials.json"
+
 SHEET_KEY = "1AfB-Sdn9ZgZXqfHLDFiZSmIap9WeXnwVzrNT-zKctlM"
 SHEET_NAME = "DailyDoseCoolFinds_Content"
 
@@ -51,19 +53,15 @@ CONTEXT_URLS = [
 # ==========================================
 
 def get_history_from_sheet(worksheet):
-    """Lee la columna B de la hoja para saber qué productos ya hemos posteado"""
     try:
-        # Obtenemos todos los nombres de la columna B (índice 1)
         rows = worksheet.get("B2:B50")
         return set([row[0] for row in rows if row])
     except Exception as e:
-        print(f"⚠️ No se pudo leer historial de la hoja: {e}")
+        print(f"⚠️ No se pudo leer historial: {e}")
         return set()
 
 def get_random_product(used_names):
-    print("🔍 Buscando producto en Sovrn (Auto-Mode)...")
-    
-    # Context Rotation
+    print("🔍 Buscando producto...")
     random_page_url = random.choice(CONTEXT_URLS)
     print(f"🧠 Contexto: {random_page_url}")
     
@@ -76,7 +74,6 @@ def get_random_product(used_names):
             all_products = r.json()
             random.shuffle(all_products)
             
-            # Filtramos: Precio > $20 Y Nombre NO usado
             candidates = [
                 p for p in all_products 
                 if float(p.get('salePrice', 0)) > 20 and p['name'] not in used_names
@@ -89,7 +86,7 @@ def get_random_product(used_names):
             else:
                 return None
     except Exception as e:
-        print(f"❌ Error obteniendo productos: {e}")
+        print(f"❌ Error Sovrn: {e}")
         return None
 
 def download_image(url, filename="temp_product.jpg"):
@@ -108,16 +105,7 @@ def update_google_sheet(product, reddit_title, reddit_permalink, worksheet):
     print("📝 Guardando en Google Sheets...")
     try:
         reddit_body = f"[Check Price](https://dailydosecoolfinds.com)"
-        
-        row = [
-            "Tech Finds",             
-            product['name'],         
-            product['imageURL'],     
-            reddit_title,            
-            reddit_body,             
-            product['deepLink'],     
-            reddit_permalink         
-        ]
+        row = ["Tech Finds", product['name'], product['imageURL'], reddit_title, reddit_body, product['deepLink'], reddit_permalink]
         worksheet.append_row(row)
         print("✅ Google Sheet actualizado.")
     except Exception as e:
@@ -162,67 +150,96 @@ Check out full review and best price on my website below.
         return False
 
 # ==========================================
-# EJECUCIÓN AUTOMÁTICA (BASE64 MODE)
+# EJECUCIÓN (HÍBRIDA: LOCAL O CLOUD)
 # ==========================================
 if __name__ == "__main__":
     print(f"🚀 Bot iniciando a las {datetime.now().strftime('%H:%M:%S')}")
     
-    # Variables Globales
     sh = None
     worksheet = None
+    mode = "DESCONOCIDO"
+
+    # --- DETECCIÓN DE ORIGEN ---
     
-    # 1. RECUPERAR CREDENCIALES DE GITHUB SECRETS (MODO BASE64)
-    b64_str = os.getenv('GOOGLE_CREDS_B64')
+    # CASO A: GITHUB CLOUD (Busca Secret)
+    google_b64_str = os.getenv('GOOGLE_CREDS_B64')
     
-    if not b64_str:
-        print("❌ ERROR: No se encontró el secreto GOOGLE_CREDS_B64.")
-        exit()
-    
-    try:
-        print("✅ Decodificando Base64 (Modo Seguro)...")
-        
-        # Decodificar Base64 directamente a Bytes
-        creds_bytes = base64.b64decode(b64_str)
-        
-        # Escribir los Bytes directos al archivo
-        with open('temp_creds.json', 'wb') as f:
-            f.write(creds_bytes)
+    if google_b64_str:
+        print("✅ Detectado entorno GitHub (Modo Base64)...")
+        mode = "GITHUB CLOUD"
+        try:
+            # Decodificar Base64
+            json_bytes = base64.b64decode(google_b64_str)
+            # Escribir a archivo
+            with open('temp_creds.json', 'wb') as f:
+                f.write(json_bytes)
+            # Conectar
+            gc = gspread.service_account(filename='temp_creds.json')
+            sh = gc.open_by_key(SHEET_KEY)
+            worksheet = sh.worksheet(SHEET_NAME)
+            print("✅ Conexión Google Sheets exitosa (Base64).")
+        except Exception as e:
+            print(f"❌ Fatal: {e}")
+            exit()
             
-        # Conectar usando el archivo generado
-        gc = gspread.service_account(filename='temp_creds.json')
-        sh = gc.open_by_key(SHEET_KEY)
-        worksheet = sh.worksheet(SHEET_NAME)
-        print("✅ Conexión Google Sheets exitosa (Base64).")
-        
-    except Exception as e:
-        print(f"❌ Fatal: {e}")
+    # CASO B: MAC LOCAL (Busca archivo físico)
+    elif os.path.exists(LOCAL_CREDS_PATH):
+        print(f"✅ Detectado entorno Local (Mac). Usando archivo: {LOCAL_CREDS_PATH}")
+        mode = "LOCAL MAC"
+        try:
+            # Conectar DIRECTO al archivo (sin Base64)
+            gc = gspread.service_account(filename=LOCAL_CREDS_PATH)
+            sh = gc.open_by_key(SHEET_KEY)
+            worksheet = sh.worksheet(SHEET_NAME)
+            print("✅ Conexión Google Sheets exitosa (Local).")
+        except Exception as e:
+            print(f"❌ Fatal Local: {e}")
+            exit()
+            
+    # CASO C: ERROR (Ni secreto ni archivo)
+    else:
+        print("❌ FATAL: No se encontró secreto de GitHub ni archivo local.")
+        print("💡 Si estás probando en MAC: Asegúrate de que el archivo existe en la ruta correcta:")
+        print(f"   -> {LOCAL_CREDS_PATH}")
+        print("💡 Si estás probando en GITHUB ACTIONS: Asegúrate de haber guardado el secreto 'GOOGLE_CREDS_B64'.")
         exit()
 
-    # 2. Cargar Historial
+    # --- LÓGICA PRINCIPAL (Común para ambos modos) ---
+    
+    # 1. Historial
     used_names = get_history_from_sheet(worksheet)
     print(f"📂 Productos ya posteados: {len(used_names)}")
 
-    # 3. Buscar Producto
+    # 2. Buscar
     prod = get_random_product(used_names)
     if not prod:
-        print("⚠️ No se encontraron productos nuevos.")
+        print("⚠️ No se encontraron productos.")
         exit()
 
     print(f"🎯 Producto: {prod['name']}")
 
-    # 4. Descargar Imagen
+    # 3. Descargar
     img_file = download_image(prod['imageURL'])
     if not img_file:
         exit()
 
-    # 5. Publicar en Reddit (Automático)
-    success = post_to_reddit_image(prod, img_file)
-    
-    # 6. Limpieza
-    if success:
-        if os.path.exists(img_file):
-            os.remove(img_file)
-        if os.path.exists('temp_creds.json'):
-            os.remove('temp_creds.json')
-    
+    # 4. Publicar
+    # Nota: En Mac te pedirá confirmación. En GitHub Actions, si no hay input, fallará.
+    # Para automatización real en Mac, elimina el input. Para automatización en Cloud, usa el trigger de GitHub.
+    try:
+        confirm = input("¿Publicar en Reddit y actualizar Sheet? (s/n): ")
+        if confirm.lower() == 's':
+            success = post_to_reddit_image(prod, img_file)
+            
+            if success:
+                # Limpieza
+                if os.path.exists(img_file):
+                    os.remove(img_file)
+                if mode == "GITHUB CLOUD" and os.path.exists('temp_creds.json'):
+                    os.remove('temp_creds.json')
+    except EOFError:
+        # Esto ocurre en GitHub Actions si usas input() y no hay teclado.
+        # Ignoramos para automatización pura, o cambias el input por confirmación directa.
+        print("⚠️ Modo Automático detectado (Sin Input), pero el script solicitó confirmación. Ajusta el código para full auto.")
+
     print("🏁 Ejecución finalizada.")
