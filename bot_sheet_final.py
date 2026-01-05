@@ -53,8 +53,10 @@ CONTEXT_URLS = [
 def get_history_from_sheet(worksheet):
     """Lee la columna B de la hoja para saber qué productos ya hemos posteado"""
     try:
-        # Obtenemos todos los nombres de la columna B (índice 1)
+        # Obtenemos todos los nombres de la columna B (índice 1 porque A es 0)
+        # Limitamos a las últimas 50 filas para ahorrar tiempo
         rows = worksheet.get("B2:B50")
+        # rows devuelve una lista de listas [['Nombre1'], ['Nombre2']]
         return set([row[0] for row in rows if row])
     except Exception as e:
         print(f"⚠️ No se pudo leer historial de la hoja: {e}")
@@ -76,7 +78,7 @@ def get_random_product(used_names):
             all_products = r.json()
             random.shuffle(all_products)
             
-            # Filtramos: Precio > $20 Y Nombre NO usado
+            # Filtramos: Precio > $20 Y Nombre NO usado (usando la hoja como historial)
             candidates = [
                 p for p in all_products 
                 if float(p.get('salePrice', 0)) > 20 and p['name'] not in used_names
@@ -126,7 +128,7 @@ def post_to_reddit_image(product, image_path):
             client_id=REDDIT_CLIENT_ID,
             client_secret=REDDIT_CLIENT_SECRET,
             password=REDDIT_PASSWORD,
-            user_agent=f"script:GitHubActionsBot:v1.0 (by /u/{REDDIT_USERNAME})",
+            user_agent=f"script:RenderBot:v1.0 (by /u/{REDDIT_USERNAME})",
             username=REDDIT_USERNAME
         )
         
@@ -161,11 +163,21 @@ if __name__ == "__main__":
         # Si estamos en GitHub Actions (variable de entorno existe), usarla
         google_json_str = os.getenv('GOOGLE_CREDENTIALS_JSON')
         
+        # --- DEPURACIÓN Y SEGURIDAD ---
+        print(f"DEBUG: ¿Existe la variable? {google_json_str is not None}")
+        if google_json_str:
+            print(f"DEBUG: Longitud del secreto: {len(google_json_str)} caracteres")
+            google_json_str = google_json_str.strip() # Quitamos espacios extra
+        else:
+            print("DEBUG: La variable GOOGLE_CREDENTIALS_JSON es NULL (No existe).")
+        # ----------------------------------------
+        
         if google_json_str:
             print("✅ Usando credenciales de GitHub Actions Secrets...")
             # Decodificar JSON para arreglar el error de "Invalid JWT Signature"
             try:
                 creds_dict = json.loads(google_json_str)
+                # Escribimos el diccionario formateado correctamente al archivo
                 with open('temp_creds.json', 'w') as f:
                     json.dump(creds_dict, f)
                 # Conectar usando el archivo temporal decodificado
@@ -191,7 +203,7 @@ if __name__ == "__main__":
     used_names = get_history_from_sheet(worksheet)
     print(f"📂 Productos ya posteados: {len(used_names)}")
 
-    # 3. Buscar Producto (Con Shuffle y Mercado Amplio)
+    # 3. Buscar Producto Único (Con Shuffle y Mercado Amplio)
     prod = get_random_product(used_names)
     if not prod:
         print("⚠️ No se encontraron productos nuevos.")
