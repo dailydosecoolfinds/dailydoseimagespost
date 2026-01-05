@@ -32,7 +32,7 @@ REDDIT_CLIENT_ID = "vBYT7GqUOhaqCTFivCHw6A"
 REDDIT_CLIENT_SECRET = "Z0QhUNoC8WZtR3klaXOcUi9IvRFOyA"
 REDDIT_USERNAME = "amzcoolfinds"
 REDDIT_PASSWORD = "Mamita01@*"
-FLAIR_ID = "463a2860-dd0e-11f0-a489-92c8b64e1845" 
+FLAIR_ID = "463a2860-dd0e-11f0-a489-92c8b64e1845"
 
 # ==========================================
 # 4. CONFIGURACIÓN DE CONTENIDO & HISTORIAL
@@ -55,6 +55,7 @@ def get_history_from_sheet(worksheet):
     try:
         # Obtenemos todos los nombres de la columna B (índice 1)
         rows = worksheet.get("B2:B50")
+        # rows devuelve una lista de listas [['Nombre1'], ['Nombre2']]
         return set([row[0] for row in rows if row])
     except Exception as e:
         print(f"⚠️ No se pudo leer historial de la hoja: {e}")
@@ -76,13 +77,13 @@ def get_random_product(used_names):
             all_products = r.json()
             random.shuffle(all_products)
             
-            # Filtramos: Precio > $20 Y Nombre NO usado
+            # Filtramos: Precio > $20 Y Nombre NO usado (usando la hoja como historial)
             candidates = [
                 p for p in all_products 
                 if float(p.get('salePrice', 0)) > 20 and p['name'] not in used_names
             ]
             
-            print(f"✨ Candidatos válidos: {len(candidates)}")
+            print(f"✨ Después de filtrar repetidos y baratos, quedan {len(candidates)} opciones.")
             
             if len(candidates) > 0:
                 selected = candidates[0]
@@ -91,10 +92,9 @@ def get_random_product(used_names):
             else:
                 print("⚠️ Todos los candidatos encontrados ya han sido usados o son baratos.")
                 return None
-        return None
     except Exception as e:
         print(f"❌ Error obteniendo productos: {e}")
-        return None
+    return None
 
 def download_image(url, filename="temp_product.jpg"):
     print(f"📥 Descargando imagen...")
@@ -140,10 +140,12 @@ def post_to_reddit_image(product, image_path):
     
     subreddit = reddit.subreddit("dailydosecoolfinds")
     
-    # 1. Título Limpio
+    # 1. Título limpio (Sin marca, solo producto en inglés)
+    # Ejemplo: "Ergonomic Task Chair - Just $142.99" (Sin [Wayfair])
     clean_title = f"{product['name']} - Just ${product['salePrice']} 🔥"
     
-    # 2. Caption (Texto bajo la imagen)
+    # 2. Captación (Hook) hacia tu Landing Page
+    # Reddit no permite títulos clickeables, pero sí Markdown en el texto
     caption = f"""
 **Found this amazing deal!** 📦
 
@@ -163,6 +165,7 @@ Check out full review and best price on my website below.
         print("✅ POST CREADO EN REDDIT.")
         print(f"🔗 Link: {reddit_permalink}")
         
+        # 3. Pasamos los datos para guardar en la hoja
         update_google_sheet(product, clean_title, reddit_permalink, worksheet)
         
         return True
@@ -171,17 +174,20 @@ Check out full review and best price on my website below.
         return False
 
 # ==========================================
-# EJECUCIÓN (Main Block CORREGIDO)
+# EJECUCIÓN (Main Block ARREGLADO)
 # ==========================================
 if __name__ == "__main__":
     print(f"🚀 Bot iniciando a las {datetime.now().strftime('%H:%M:%S')}")
     
+    # --- VARIABLES GLOBALES PARA SHEET ---
+    sh = None
+    worksheet = None
+    
     # 1. RECUPERAR CREDENCIALES Y CONECTAR A GOOGLE SHEETS
-    # Este bloque debe ir ANTES de leer el historial
     google_json_str = os.getenv('GOOGLE_CREDENTIALS_JSON')
     
     if not google_json_str:
-        print("❌ ERROR: No se encontró el secreto GOOGLE_CREDENTIALS_JSON en GitHub Actions Settings.")
+        print("❌ ERROR: No se encontró el secreto.")
         exit()
     
     try:
@@ -193,7 +199,12 @@ if __name__ == "__main__":
         with open('temp_creds.json', 'w') as f:
             f.write(google_json_str)
             
-        # Conectar a Google Sheets
+        # Verificar que el archivo no esté vacío
+        if os.path.getsize('temp_creds.json') < 100:
+             print("❌ ERROR: El archivo JSON generado está vacío o corrupto.")
+             raise Exception("JSON File Empty")
+        
+        # Conectar usando el archivo temporal
         gc = gspread.service_account(filename='temp_creds.json')
         sh = gc.open_by_key(SHEET_KEY)
         worksheet = sh.worksheet(SHEET_NAME)
@@ -203,34 +214,38 @@ if __name__ == "__main__":
         print(f"❌ Fatal: No se pudo conectar a Google Sheet: {e}")
         exit()
 
-    # 2. CARGAR HISTORIAL (Ahora que tenemos 'worksheet')
-    used_names = get_history_from_sheet(worksheet)
-    print(f"📂 Productos ya posteados: {len(used_names)}")
+    # 2. Cargar Historial desde la Hoja (Persistencia)
+    # NOTA: Usamos la variable 'worksheet' creada arriba
+    used_ids = get_history_from_sheet(worksheet)
+    print(f"📂 Productos ya posteados: {len(used_ids)}")
 
-    # 3. BUSCAR PRODUCTO
-    prod = get_random_product(used_names)
+    # 3. Buscar Producto Único (Con Shuffle y Mercado Amplio)
+    prod = get_random_product(used_ids)
     if not prod:
         print("⚠️ No se encontraron productos nuevos.")
         exit()
 
-    # 4. DESCARGAR IMAGEN
+    print(f"🎯 Producto Elegido: {prod['name']}")
+
+    # 4. Descargar Imagen
     img_file = download_image(prod['imageURL'])
     if not img_file:
         exit()
 
-    # 5. PUBLICAR EN REDDIT (Automático)
+    # 5. Publicar
     confirm = input("¿Publicar en Reddit y actualizar Sheet? (s/n): ")
     if confirm.lower() == 's':
         success = post_to_reddit_image(prod, img_file)
         
         if success:
+            # 6. Guardar ID en historial para NO repetir
+            used_ids.add(prod['id'])
+            save_history(used_ids) # Asegúrate de tener esta función si quieres usar JSON local, en la nube usamos sheet
             os.remove(img_file)
-            if os.path.exists('temp_creds.json'):
-                os.remove('temp_creds.json')
         else:
-            print("Post fallido, no se borraron archivos.")
+            print("Post fallido, no se guardó en historial.")
     else:
         print("Cancelado.")
-        # Limpiamos el json si se cancela
+        # Limpieza
         if os.path.exists('temp_creds.json'):
             os.remove('temp_creds.json')
