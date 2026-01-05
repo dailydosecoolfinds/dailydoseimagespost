@@ -53,6 +53,7 @@ CONTEXT_URLS = [
 def get_history_from_sheet(worksheet):
     """Lee la columna B de la hoja para saber qué productos ya hemos posteado"""
     try:
+        # Asumimos que el historial empieza en la fila 2
         # Obtenemos todos los nombres de la columna B (índice 1 porque A es 0)
         # Limitamos a las últimas 50 filas para ahorrar tiempo
         rows = worksheet.get("B2:B50")
@@ -128,7 +129,7 @@ def post_to_reddit_image(product, image_path):
             client_id=REDDIT_CLIENT_ID,
             client_secret=REDDIT_CLIENT_SECRET,
             password=REDDIT_PASSWORD,
-            user_agent=f"script:RenderBot:v1.0 (by /u/{REDDIT_USERNAME})",
+            user_agent=f"script:GitHubActionsBot:v1.0 (by /u/{REDDIT_USERNAME})",
             username=REDDIT_USERNAME
         )
         
@@ -158,32 +159,40 @@ def post_to_reddit_image(product, image_path):
 if __name__ == "__main__":
     print(f"🚀 Bot iniciando a las {datetime.now().strftime('%H:%M:%S')}")
     
-    # 1. CONEXIÓN GOOGLE SHEETS (FIX PARA GITHUB ACTIONS)
+    # 1. RECUPERAR CREDENCIALES DE GITHUB SECRETS
+    google_json_str = os.getenv('GOOGLE_CREDENTIALS_JSON')
+    
+    # --- DEPURACIÓN ---
+    print(f"DEBUG: ¿Existe la variable? {google_json_str is not None}")
+    if google_json_str:
+        print(f"DEBUG: Longitud del secreto: {len(google_json_str)} caracteres")
+        google_json_str = google_json_str.strip() # Quitamos espacios extra
+    else:
+        print("DEBUG: La variable GOOGLE_CREDENTIALS_JSON es NULL (No existe).")
+    # ------------------------
+    
+    # 2. CONEXIÓN GOOGLE SHEETS (FIX DEFINITIVO: ESCRITURA DIRECTA)
     try:
-        # Si estamos en GitHub Actions (variable de entorno existe), usarla
-        google_json_str = os.getenv('GOOGLE_CREDENTIALS_JSON')
-        
-        # --- DEPURACIÓN Y SEGURIDAD ---
-        print(f"DEBUG: ¿Existe la variable? {google_json_str is not None}")
-        if google_json_str:
-            print(f"DEBUG: Longitud del secreto: {len(google_json_str)} caracteres")
-            google_json_str = google_json_str.strip() # Quitamos espacios extra
-        else:
-            print("DEBUG: La variable GOOGLE_CREDENTIALS_JSON es NULL (No existe).")
-        # ----------------------------------------
-        
         if google_json_str:
             print("✅ Usando credenciales de GitHub Actions Secrets...")
-            # Decodificar JSON para arreglar el error de "Invalid JWT Signature"
+            
+            # FIX ESCRITURA DIRECTA:
+            # Escribimos el string directamente SIN procesarlo con json.loads
+            # Esto preserva la firma exacta del JWT
             try:
-                creds_dict = json.loads(google_json_str)
-                # Escribimos el diccionario formateado correctamente al archivo
+                print("✅ Escribiendo archivo JSON crudo (Fix JWT)...")
                 with open('temp_creds.json', 'w') as f:
-                    json.dump(creds_dict, f)
-                # Conectar usando el archivo temporal decodificado
+                    f.write(google_json_str)
+                
+                # Verificar que el archivo no esté vacío
+                if os.path.getsize('temp_creds.json') < 100:
+                     print("❌ ERROR: El archivo JSON generado está vacío o corrupto.")
+                     raise Exception("JSON File Empty")
+                
+                # Conectar usando el archivo temporal
                 gc = gspread.service_account(filename='temp_creds.json')
             except Exception as e:
-                print(f"❌ Error decodificando credenciales: {e}")
+                print(f"❌ Error creando/leyendo credenciales: {e}")
                 raise
         else:
             # Si estamos en local, usar el archivo físico
@@ -199,11 +208,11 @@ if __name__ == "__main__":
         print(f"❌ Fatal: No se pudo conectar a Google Sheet: {e}")
         exit()
 
-    # 2. Cargar Historial desde la Hoja (Persistencia)
+    # 3. Cargar Historial desde la Hoja (Persistencia)
     used_names = get_history_from_sheet(worksheet)
     print(f"📂 Productos ya posteados: {len(used_names)}")
 
-    # 3. Buscar Producto Único (Con Shuffle y Mercado Amplio)
+    # 4. Buscar Producto Único (Con Shuffle y Mercado Amplio)
     prod = get_random_product(used_names)
     if not prod:
         print("⚠️ No se encontraron productos nuevos.")
@@ -211,16 +220,16 @@ if __name__ == "__main__":
 
     print(f"🎯 Producto Elegido: {prod['name']}")
 
-    # 4. Descargar Imagen
+    # 5. Descargar Imagen
     img_file = download_image(prod['imageURL'])
     if not img_file:
         exit()
 
-    # 5. Publicar en Reddit (Automático)
+    # 6. Publicar en Reddit (Automático)
     permalink = post_to_reddit_image(prod, img_file)
     
     if permalink:
-        # 6. Guardar en Hoja
+        # 7. Guardar en Hoja
         clean_title = f"{prod['name']} - Just ${prod['salePrice']} 🔥"
         update_google_sheet(prod, clean_title, permalink, worksheet)
         
