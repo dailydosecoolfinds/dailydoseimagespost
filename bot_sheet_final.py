@@ -4,7 +4,7 @@ import gspread
 import os
 import json
 import random
-import base64  # Solo necesario si usas el secreto
+import base64
 from datetime import datetime
 
 # ==========================================
@@ -20,11 +20,9 @@ SOVRN_HEADERS = {
 }
 
 # ==========================================
-# 2. CONFIGURACIÓN GOOGLE SHEETS (HÍBRIDA)
+# 2. CONFIGURACIÓN GOOGLE SHEETS
 # ==========================================
-# PATH PARA MAC LOCAL
-LOCAL_CREDS_PATH = "/Users/stuffswag.com/.sovrnbot/credentials.json"
-
+# Solo claves de la nube
 SHEET_KEY = "1AfB-Sdn9ZgZXqfHLDFiZSmIap9WeXnwVzrNT-zKctlM"
 SHEET_NAME = "DailyDoseCoolFinds_Content"
 
@@ -38,7 +36,7 @@ REDDIT_PASSWORD = "Mamita01@*"
 FLAIR_ID = "463a2860-dd0e-11f0-a489-92c8b64e1845"
 
 # ==========================================
-# 4. CONFIGURACIÓN DE CONTENIDO & HISTORIAL
+# 4. CONFIGURACIÓN DE CONTENIDO
 # ==========================================
 CONTEXT_URLS = [
     "https://www.youtube.com/@EvateExplica",
@@ -61,7 +59,9 @@ def get_history_from_sheet(worksheet):
         return set()
 
 def get_random_product(used_names):
-    print("🔍 Buscando producto...")
+    print("🔍 Buscando producto en Sovrn...")
+    
+    # Context Rotation
     random_page_url = random.choice(CONTEXT_URLS)
     print(f"🧠 Contexto: {random_page_url}")
     
@@ -86,11 +86,11 @@ def get_random_product(used_names):
             else:
                 return None
     except Exception as e:
-        print(f"❌ Error Sovrn: {e}")
+        print(f"❌ Error obteniendo productos: {e}")
         return None
 
 def download_image(url, filename="temp_product.jpg"):
-    print(f"📥 Descargando imagen...")
+    print("📥 Descargando imagen...")
     try:
         img_data = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10).content
         with open(filename, 'wb') as handler:
@@ -105,7 +105,16 @@ def update_google_sheet(product, reddit_title, reddit_permalink, worksheet):
     print("📝 Guardando en Google Sheets...")
     try:
         reddit_body = f"[Check Price](https://dailydosecoolfinds.com)"
-        row = ["Tech Finds", product['name'], product['imageURL'], reddit_title, reddit_body, product['deepLink'], reddit_permalink]
+        
+        row = [
+            "Tech Finds",             
+            product['name'],         
+            product['imageURL'],     
+            reddit_title,            
+            reddit_body,             
+            product['deepLink'],     
+            reddit_permalink         
+        ]
         worksheet.append_row(row)
         print("✅ Google Sheet actualizado.")
     except Exception as e:
@@ -118,20 +127,14 @@ def post_to_reddit_image(product, image_path):
             client_id=REDDIT_CLIENT_ID,
             client_secret=REDDIT_CLIENT_SECRET,
             password=REDDIT_PASSWORD,
-            user_agent=f"script:DailyDoseBot:v1.0 (by /u/{REDDIT_USERNAME})",
+            user_agent=f"script:CloudBot:v1.0 (by /u/{REDDIT_USERNAME})",
             username=REDDIT_USERNAME
         )
         
         subreddit = reddit.subreddit("dailydosecoolfinds")
         
         clean_title = f"{product['name']} - Just ${product['salePrice']} 🔥"
-        caption = f"""
-**Found this amazing deal!** 📦
-
-Check out full review and best price on my website below.
-
-**[👉 CLICK HERE TO VIEW PRODUCT & DEAL](https://dailydosecoolfinds.com)**
-"""
+        caption = f"[{clean_title}](https://dailydosecoolfinds.com)"
 
         submission = subreddit.submit_image(
             title=clean_title,
@@ -139,107 +142,82 @@ Check out full review and best price on my website below.
             flair_id=FLAIR_ID
         )
         
-        reddit_permalink = f"https://www.reddit.com{submission.permalink}"
+        permalink = f"https://www.reddit.com{submission.permalink}"
         print("✅ POST CREADO.")
-        print(f"🔗 Link: {reddit_permalink}")
+        print(f"🔗 Link: {permalink}")
         
-        update_google_sheet(product, clean_title, reddit_permalink, worksheet)
+        update_google_sheet(product, clean_title, permalink, worksheet)
         return True
     except Exception as e:
         print(f"❌ Error Reddit: {e}")
         return False
 
 # ==========================================
-# EJECUCIÓN (HÍBRIDA: LOCAL O CLOUD)
+# EJECUCIÓN (MODO CLOUD ONLY)
 # ==========================================
 if __name__ == "__main__":
     print(f"🚀 Bot iniciando a las {datetime.now().strftime('%H:%M:%S')}")
     
-    sh = None
-    worksheet = None
-    mode = "DESCONOCIDO"
-
-    # --- DETECCIÓN DE ORIGEN ---
+    # 1. RECUPERAR SECRETO BASE64 (OBLIGATORIO EN GITHUB ACTIONS)
+    b64_str = os.getenv('GOOGLE_CREDS_B64')
     
-    # CASO A: GITHUB CLOUD (Busca Secret)
-    google_b64_str = os.getenv('GOOGLE_CREDS_B64')
+    # VALIDACIÓN: Si no está el secreto, salimos inmediatamente
+    if not b64_str:
+        print("❌ ERROR CRÍTICO:")
+        print("❌ La variable 'GOOGLE_CREDS_B64' no está configurada.")
+        print("💡 SOLUCIÓN:")
+        print("💡 1. Ve a tu repositorio en GitHub.")
+        print("💡 2. Ve a Settings > Secrets and variables > Actions.")
+        print("💡 3. Crea un secreto nuevo con este nombre exacto: GOOGLE_CREDS_B64")
+        print("💡 4. Pega el código gigante que generaste con 'make_secret.py'.")
+        exit()
     
-    if google_b64_str:
-        print("✅ Detectado entorno GitHub (Modo Base64)...")
-        mode = "GITHUB CLOUD"
-        try:
-            # Decodificar Base64
-            json_bytes = base64.b64decode(google_b64_str)
-            # Escribir a archivo
-            with open('temp_creds.json', 'wb') as f:
-                f.write(json_bytes)
-            # Conectar
-            gc = gspread.service_account(filename='temp_creds.json')
-            sh = gc.open_by_key(SHEET_KEY)
-            worksheet = sh.worksheet(SHEET_NAME)
-            print("✅ Conexión Google Sheets exitosa (Base64).")
-        except Exception as e:
-            print(f"❌ Fatal: {e}")
-            exit()
+    # 2. DECODIFICAR Y CONECTAR
+    try:
+        print("✅ Decodificando credenciales (Base64)...")
+        # Decodificar Base64 directamente a Bytes
+        creds_bytes = base64.b64decode(b64_str)
+        
+        # Escribir Bytes directo al archivo temporal
+        with open('temp_creds.json', 'wb') as f:
+            f.write(creds_bytes)
             
-    # CASO B: MAC LOCAL (Busca archivo físico)
-    elif os.path.exists(LOCAL_CREDS_PATH):
-        print(f"✅ Detectado entorno Local (Mac). Usando archivo: {LOCAL_CREDS_PATH}")
-        mode = "LOCAL MAC"
-        try:
-            # Conectar DIRECTO al archivo (sin Base64)
-            gc = gspread.service_account(filename=LOCAL_CREDS_PATH)
-            sh = gc.open_by_key(SHEET_KEY)
-            worksheet = sh.worksheet(SHEET_NAME)
-            print("✅ Conexión Google Sheets exitosa (Local).")
-        except Exception as e:
-            print(f"❌ Fatal Local: {e}")
-            exit()
-            
-    # CASO C: ERROR (Ni secreto ni archivo)
-    else:
-        print("❌ FATAL: No se encontró secreto de GitHub ni archivo local.")
-        print("💡 Si estás probando en MAC: Asegúrate de que el archivo existe en la ruta correcta:")
-        print(f"   -> {LOCAL_CREDS_PATH}")
-        print("💡 Si estás probando en GITHUB ACTIONS: Asegúrate de haber guardado el secreto 'GOOGLE_CREDS_B64'.")
+        # Conectar usando el archivo temporal
+        gc = gspread.service_account(filename='temp_creds.json')
+        sh = gc.open_by_key(SHEET_KEY)
+        worksheet = sh.worksheet(SHEET_NAME)
+        print("✅ Conexión Google Sheets exitosa (Nube).")
+        
+    except Exception as e:
+        print(f"❌ Fatal: No se pudo conectar a Google Sheet: {e}")
+        print(f"💡 Revisa que el secreto 'GOOGLE_CREDS_B64' esté pegado COMPLETO.")
         exit()
 
-    # --- LÓGICA PRINCIPAL (Común para ambos modos) ---
-    
-    # 1. Historial
+    # 3. Cargar Historial
     used_names = get_history_from_sheet(worksheet)
     print(f"📂 Productos ya posteados: {len(used_names)}")
 
-    # 2. Buscar
+    # 4. Buscar Producto
     prod = get_random_product(used_names)
     if not prod:
-        print("⚠️ No se encontraron productos.")
+        print("⚠️ No se encontraron productos nuevos.")
         exit()
 
     print(f"🎯 Producto: {prod['name']}")
 
-    # 3. Descargar
+    # 5. Descargar Imagen
     img_file = download_image(prod['imageURL'])
     if not img_file:
         exit()
 
-    # 4. Publicar
-    # Nota: En Mac te pedirá confirmación. En GitHub Actions, si no hay input, fallará.
-    # Para automatización real en Mac, elimina el input. Para automatización en Cloud, usa el trigger de GitHub.
-    try:
-        confirm = input("¿Publicar en Reddit y actualizar Sheet? (s/n): ")
-        if confirm.lower() == 's':
-            success = post_to_reddit_image(prod, img_file)
-            
-            if success:
-                # Limpieza
-                if os.path.exists(img_file):
-                    os.remove(img_file)
-                if mode == "GITHUB CLOUD" and os.path.exists('temp_creds.json'):
-                    os.remove('temp_creds.json')
-    except EOFError:
-        # Esto ocurre en GitHub Actions si usas input() y no hay teclado.
-        # Ignoramos para automatización pura, o cambias el input por confirmación directa.
-        print("⚠️ Modo Automático detectado (Sin Input), pero el script solicitó confirmación. Ajusta el código para full auto.")
-
+    # 6. Publicar (Automático)
+    success = post_to_reddit_image(prod, img_file)
+    
+    # 7. Limpieza
+    if success:
+        if os.path.exists(img_file):
+            os.remove(img_file)
+        if os.path.exists('temp_creds.json'):
+            os.remove('temp_creds.json')
+    
     print("🏁 Ejecución finalizada.")
