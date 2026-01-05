@@ -58,7 +58,7 @@ def get_history_from_sheet(worksheet):
         return set()
 
 def get_random_product(used_names):
-    print("🔍 Buscando producto...")
+    print("🔍 Buscando producto en Sovrn...")
     random_page_url = random.choice(CONTEXT_URLS)
     print(f"🧠 Contexto: {random_page_url}")
     
@@ -87,7 +87,7 @@ def get_random_product(used_names):
         return None
 
 def download_image(url, filename="temp_product.jpg"):
-    print(f"📥 Descargando imagen...")
+    print("📥 Descargando imagen...")
     try:
         img_data = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10).content
         with open(filename, 'wb') as handler:
@@ -106,7 +106,7 @@ def update_google_sheet(product, reddit_title, reddit_permalink, worksheet):
         worksheet.append_row(row)
         print("✅ Google Sheet actualizado.")
     except Exception as e:
-        print(f"❌ Error Google Sheet: {e}")
+        print(f"❌ Error en Google Sheet: {e}")
 
 def post_to_reddit_image(product, image_path):
     print("🔌 Conectando a Reddit...")
@@ -115,7 +115,7 @@ def post_to_reddit_image(product, image_path):
             client_id=REDDIT_CLIENT_ID,
             client_secret=REDDIT_CLIENT_SECRET,
             password=REDDIT_PASSWORD,
-            user_agent=f"script:DailyDoseBot:v1.0 (by /u/{REDDIT_USERNAME})",
+            user_agent=f"script:DailyDoseAutoBot:v1.0 (by /u/{REDDIT_USERNAME})",
             username=REDDIT_USERNAME
         )
         subreddit = reddit.subreddit("dailydosecoolfinds")
@@ -131,15 +131,14 @@ def post_to_reddit_image(product, image_path):
         permalink = f"https://www.reddit.com{submission.permalink}"
         print("✅ POST CREADO.")
         print(f"🔗 Link: {permalink}")
-        
         update_google_sheet(product, clean_title, permalink, worksheet)
         return True
     except Exception as e:
-        print(f"❌ Error Reddit: {e}")
+        print(f"❌ Error en Reddit: {e}")
         return False
 
 # ==========================================
-# EJECUCIÓN (Main Block)
+# EJECUCIÓN AUTOMÁTICA (SIN INPUT)
 # ==========================================
 if __name__ == "__main__":
     print(f"🚀 Bot iniciando a las {datetime.now().strftime('%H:%M:%S')}")
@@ -148,7 +147,7 @@ if __name__ == "__main__":
     sh = None
     worksheet = None
     
-    # 1. Conexión Google Sheets (Fix JWT)
+    # 1. RECUPERAR CREDENCIALES Y CONECTAR A GOOGLE SHEETS
     google_json_str = os.getenv('GOOGLE_CREDENTIALS_JSON')
     
     if not google_json_str:
@@ -159,7 +158,7 @@ if __name__ == "__main__":
         # Fix de saltos de línea
         google_json_str = google_json_str.replace('\\n', '\n')
         
-        # Escritura directa para evitar corromper firma
+        # Escribir archivo temporal
         with open('temp_creds.json', 'w') as f:
             f.write(google_json_str)
             
@@ -173,37 +172,33 @@ if __name__ == "__main__":
         print("✅ Conexión Google Sheets exitosa.")
         
     except Exception as e:
-        print(f"❌ Fatal: {e}")
+        print(f"❌ Fatal: No se pudo conectar a Google Sheet: {e}")
         exit()
 
-    # 2. Historial
+    # 2. Cargar Historial desde la Hoja (Persistencia)
     used_names = get_history_from_sheet(worksheet)
-    print(f"📂 Productos usados: {len(used_names)}")
+    print(f"📂 Productos ya posteados: {len(used_names)}")
 
-    # 3. Buscar
+    # 3. Buscar Producto Único
     prod = get_random_product(used_names)
     if not prod:
-        print("⚠️ No se encontraron productos.")
+        print("⚠️ No se encontraron productos nuevos.")
         exit()
 
-    print(f"🎯 Producto: {prod['name']}")
+    print(f"🎯 Producto Elegido: {prod['name']}")
 
-    # 4. Descargar
+    # 4. Descargar Imagen
     img_file = download_image(prod['imageURL'])
     if not img_file:
         exit()
 
-    # 5. Publicar
-    confirm = input("¿Publicar en Reddit y actualizar Sheet? (s/n): ")
-    if confirm.lower() == 's':
-        success = post_to_reddit_image(prod, img_file)
-        if success:
-            used_names.add(prod['id'])
-            # Guardar historial (Nota: Si usas JSON local, usa save_history aquí. Si usas Sheet, ya se guardó en get_history_from_sheet al añadir la fila)
-            os.remove(img_file)
-        else:
-            print("Post fallido.")
+    # 5. Publicar en Reddit (Automático - Sin input)
+    success = post_to_reddit_image(prod, img_file)
     
-    # Limpieza
+    # 6. Limpieza Final (Siempre ejecutar)
+    if os.path.exists(img_file):
+        os.remove(img_file)
     if os.path.exists('temp_creds.json'):
         os.remove('temp_creds.json')
+    
+    print("🏁 Ejecución finalizada.")
