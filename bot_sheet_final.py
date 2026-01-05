@@ -68,45 +68,66 @@ def get_random_product(used_names):
     
     # Context Rotation
     random_page_url = random.choice(CONTEXT_URLS)
-    print(f"🧠 Contexto: {random_page_url}")
+    print(f"🧠 AI Contexto actual: {random_page_url}")
     
     query = {"apiKey": SOVRN_API_KEY, "pageUrl": random_page_url}
-    payload = {"market": "usd_en", "num_products": 50, "exclude_merchants": [], "force_cpr_scoring": False}
+    
+    # AUMENTADO A 50 y SIN FILTRO DE TIENDAS PARA TENER VARIEDAD
+    payload = {
+        "market": "usd_en", 
+        "num_products": 50, 
+        "exclude_merchants": [], 
+        "force_cpr_scoring": False
+    }
     
     try:
         r = requests.post(SOVRN_URL, params=query, json=payload, headers=SOVRN_HEADERS, timeout=10)
         if r.status_code == 200:
             all_products = r.json()
+            print(f"📦 Sovrn devolvió {len(all_products)} productos candidatos.")
+            
+            # 1. BARAJAR (SHUFFLE): Desordena la lista para romper patrones repetitivos
             random.shuffle(all_products)
             
-            # Filtramos: Precio > $20 Y Nombre NO usado (usando la hoja como historial)
+            # 2. Filtramos: Precio > $20 Y ID no usado
             candidates = [
                 p for p in all_products 
                 if float(p.get('salePrice', 0)) > 20 and p['name'] not in used_names
             ]
             
-            print(f"✨ Candidatos válidos: {len(candidates)}")
+            print(f"✨ Después de filtrar repetidos y baratos, quedan {len(candidates)} opciones.")
             
             if len(candidates) > 0:
-                return candidates[0]
+                selected = candidates[0]
+                print(f"🎯 Producto ELEGIDO: {selected['name']}")
+                return selected
             else:
+                print("⚠️ Todos los candidatos encontrados ya han sido usados o son baratos.")
                 return None
+        return None
     except Exception as e:
-        print(f"❌ Error Sovrn: {e}")
-    return None
+        print(f"❌ Error obteniendo productos: {e}")
+        return None
 
 def download_image(url, filename="temp_product.jpg"):
+    print(f"📥 Descargando imagen...")
     try:
         img_data = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10).content
         with open(filename, 'wb') as handler:
             handler.write(img_data)
+        print("✅ Imagen descargada.")
         return filename
     except Exception as e:
         print(f"❌ Error descargando imagen: {e}")
         return None
 
 def update_google_sheet(product, reddit_title, reddit_permalink, worksheet):
+    print("📝 Guardando en Google Sheets...")
     try:
+        gc = gspread.service_account(filename=GSPREAD_CREDENTIALS_FILE)
+        sh = gc.open_by_key(SHEET_KEY)
+        worksheet = sh.worksheet(SHEET_NAME)
+        
         reddit_body = f"[Check Price](https://dailydosecoolfinds.com)"
         
         row = [
@@ -119,124 +140,91 @@ def update_google_sheet(product, reddit_title, reddit_permalink, worksheet):
             reddit_permalink         
         ]
         worksheet.append_row(row)
-        print("✅ Google Sheet actualizado.")
+        print("✅ Google Sheet actualizado con todos los datos.")
     except Exception as e:
-        print(f"❌ Error Google Sheet: {e}")
+        print(f"❌ Error en Google Sheet: {e}")
 
 def post_to_reddit_image(product, image_path):
-    try:
-        reddit = praw.Reddit(
-            client_id=REDDIT_CLIENT_ID,
-            client_secret=REDDIT_CLIENT_SECRET,
-            password=REDDIT_PASSWORD,
-            user_agent=f"script:GitHubActionsBot:v1.0 (by /u/{REDDIT_USERNAME})",
-            username=REDDIT_USERNAME
-        )
-        
-        subreddit = reddit.subreddit("dailydosecoolfinds")
-        
-        clean_title = f"{product['name']} - Just ${product['salePrice']} 🔥"
-        caption = f"[{clean_title}](https://dailydosecoolfinds.com)"
+    print("🔌 Conectando a Reddit...")
+    
+    reddit = praw.Reddit(
+        client_id=REDDIT_CLIENT_ID,
+        client_secret=REDDIT_CLIENT_SECRET,
+        password=REDDIT_PASSWORD,
+        user_agent=f"script:DailyDoseBot:v1.0 (by /u/{REDDIT_USERNAME})",
+        username=REDDIT_USERNAME
+    )
+    
+    subreddit = reddit.subreddit("dailydosecoolfinds")
+    
+    # 1. TÍTULO LIMPIO (Sin marca, solo producto en inglés)
+    # Ejemplo: "Ergonomic Task Chair - Just $142.99" (Sin [Wayfair])
+    clean_title = f"{product['name']} - Just ${product['salePrice']} 🔥"
+    
+    # 2. CAPTACIÓN (Hook) hacia tu Landing Page
+    # Reddit no permite títulos clickeables, pero sí Markdown en el texto
+    caption = f"""
+**Found this amazing deal!** 📦
 
+Check out full review and best price on my website below.
+
+**[👉 CLICK HERE TO VIEW PRODUCT & DEAL](https://dailydosecoolfinds.com)**
+"""
+
+    try:
         submission = subreddit.submit_image(
             title=clean_title,
             image_path=image_path,
             flair_id=FLAIR_ID
         )
         
-        permalink = f"https://www.reddit.com{submission.permalink}"
-        print("✅ POST CREADO.")
-        print(f"🔗 Link: {permalink}")
+        # 3. Generamos el Permalink para guardar en la hoja (Col G)
+        reddit_permalink = f"https://www.reddit.com{submission.permalink}"
         
-        return permalink
+        print("✅ POST CREADO.")
+        print(f"🔗 Link: {reddit_permalink}")
+        
+        # 4. Pasamos los datos para guardar en la hoja
+        update_google_sheet(product, clean_title, reddit_permalink)
+        
+        return True
     except Exception as e:
-        print(f"❌ Error Reddit: {e}")
-        return None
+        print(f"❌ Error en Reddit: {e}")
+        return False
 
 # ==========================================
-# EJECUCIÓN AUTOMÁTICA (SIN INPUT)
+# EJECUCIÓN
 # ==========================================
 if __name__ == "__main__":
     print(f"🚀 Bot iniciando a las {datetime.now().strftime('%H:%M:%S')}")
     
-    # 1. RECUPERAR CREDENCIALES DE GITHUB SECRETS
-    google_json_str = os.getenv('GOOGLE_CREDENTIALS_JSON')
+    # 1. Cargar Historial
+    used_ids = load_history()
     
-    # --- DEPURACIÓN ---
-    print(f"DEBUG: ¿Existe la variable? {google_json_str is not None}")
-    if google_json_str:
-        print(f"DEBUG: Longitud del secreto: {len(google_json_str)} caracteres")
-        google_json_str = google_json_str.strip() # Quitamos espacios extra
-    else:
-        print("DEBUG: La variable GOOGLE_CREDENTIALS_JSON es NULL (No existe).")
-    # ------------------------
-    
-    # 2. CONEXIÓN GOOGLE SHEETS (FIX DEFINITIVO: ESCRITURA DIRECTA)
-    try:
-        if google_json_str:
-            print("✅ Usando credenciales de GitHub Actions Secrets...")
-            
-            # FIX ESCRITURA DIRECTA:
-            # Escribimos el string directamente SIN procesarlo con json.loads
-            # Esto preserva la firma exacta del JWT
-            try:
-                print("✅ Escribiendo archivo JSON crudo (Fix JWT)...")
-                with open('temp_creds.json', 'w') as f:
-                    f.write(google_json_str)
-                
-                # Verificar que el archivo no esté vacío
-                if os.path.getsize('temp_creds.json') < 100:
-                     print("❌ ERROR: El archivo JSON generado está vacío o corrupto.")
-                     raise Exception("JSON File Empty")
-                
-                # Conectar usando el archivo temporal
-                gc = gspread.service_account(filename='temp_creds.json')
-            except Exception as e:
-                print(f"❌ Error creando/leyendo credenciales: {e}")
-                raise
-        else:
-            # Si estamos en local, usar el archivo físico
-            print("✅ Usando archivo credentials.json local...")
-            if not os.path.exists(GSPREAD_CREDENTIALS_FILE):
-                print(f"⚠️ No se encontró {GSPREAD_CREDENTIALS_FILE}")
-            gc = gspread.service_account(filename=GSPREAD_CREDENTIALS_FILE)
-
-        sh = gc.open_by_key(SHEET_KEY)
-        worksheet = sh.worksheet(SHEET_NAME)
-        print("✅ Conexión Google Sheets exitosa.")
-    except Exception as e:
-        print(f"❌ Fatal: No se pudo conectar a Google Sheet: {e}")
-        exit()
-
-    # 3. Cargar Historial desde la Hoja (Persistencia)
-    used_names = get_history_from_sheet(worksheet)
-    print(f"📂 Productos ya posteados: {len(used_names)}")
-
-    # 4. Buscar Producto Único (Con Shuffle y Mercado Amplio)
-    prod = get_random_product(used_names)
+    # 2. Buscar Producto Único
+    prod = get_random_product(used_ids)
     if not prod:
-        print("⚠️ No se encontraron productos nuevos.")
+        print("No se encontraron productos nuevos.")
         exit()
 
-    print(f"🎯 Producto Elegido: {prod['name']}")
+    print(f"✅ Producto: {prod['name']}")
 
-    # 5. Descargar Imagen
+    # 3. Descargar Imagen
     img_file = download_image(prod['imageURL'])
     if not img_file:
         exit()
 
-    # 6. Publicar en Reddit (Automático)
-    permalink = post_to_reddit_image(prod, img_file)
-    
-    if permalink:
-        # 7. Guardar en Hoja
-        clean_title = f"{prod['name']} - Just ${prod['salePrice']} 🔥"
-        update_google_sheet(prod, clean_title, permalink, worksheet)
+    # 4. Publicar
+    confirm = input("¿Publicar en Reddit y actualizar Sheet? (s/n): ")
+    if confirm.lower() == 's':
+        success = post_to_reddit_image(prod, img_file)
         
-        # Limpieza
-        if os.path.exists(img_file):
+        if success:
+            # 5. Guardar ID en historial para NO repetir
+            used_ids.add(prod['id'])
+            save_history(used_ids)
             os.remove(img_file)
-        if os.path.exists('temp_creds.json'):
-            os.remove('temp_creds.json')
-    
-    print("🏁 Ejecución finalizada.")
+        else:
+            print("Post fallido, no se guardó en historial.")
+    else:
+        print("Cancelado.")
