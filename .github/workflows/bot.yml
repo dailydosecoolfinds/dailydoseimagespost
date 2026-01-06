@@ -1,36 +1,33 @@
 name: Sovrn Auto Poster
 
-# Configuración del Reloj (Schedule)
 on:
+  # Se ejecuta cada 6 horas
   schedule:
-    # Se ejecuta cada 6 horas (Horario UTC)
     - cron: '0 */6 * * *'
-  # También permite ejecutarlo manualmente desde la web
+  # Permite ejecutarlo manualmente con un botón desde GitHub
   workflow_dispatch:
 
-# Trabajo a realizar
 jobs:
-  run-bot-script:
+  run-bot:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Descargar tu código
-      - name: Checkout repository
-        uses: actions/checkout@v2
+      - name: Checkout del código
+        uses: actions/checkout@v3
 
-      # 2. Instalar Python
-      - name: Set up Python
-        uses: actions/setup-python@v2
+      - name: Instalar Python
+        uses: actions/setup-python@v4
         with:
           python-version: '3.9'
 
-      # 3. Instalar las librerías (Directo en YAML para asegurar que se instalen)
-      - name: Install dependencies
-        run: pip install requests praw gspread oauth2client
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-      # 4. Ejecutar tu bot con las credenciales
-      - name: Run Sovrn Bot
+      - name: Ejecutar Bot
         env:
-          # IMPORTANTE: Este nombre debe coincidir exactamente con lo que busca el código Python
-          GOOGLE_CREDS_B64: ${{ secrets.GOOGLE_CREDS_B64 }}
+          # AQUI ESTABA EL ERROR: El nombre de la izquierda debe coincidir con lo que busca Python
+          # El nombre de la derecha debe coincidir con tu Secreto en GitHub
+          CREDENCIALES: ${{ secrets.CREDENCIALES }}
         run: python bot_sheet_final.py
