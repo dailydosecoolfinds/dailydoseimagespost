@@ -159,16 +159,16 @@ if __name__ == "__main__":
     print(f"🚀 Bot iniciando a las {datetime.now().strftime('%H:%M:%S')}")
     
     # 1. RECUPERAR SECRETO BASE64 (OBLIGATORIO EN GITHUB ACTIONS)
-    b64_str = os.getenv('GOOGLE_CREDS_B64')
+    b64_str = os.getenv('CREDENCIALES')
     
     # VALIDACIÓN: Si no está el secreto, salimos inmediatamente
     if not b64_str:
         print("❌ ERROR CRÍTICO:")
-        print("❌ La variable 'GOOGLE_CREDS_B64' no está configurada.")
+        print("❌ La variable 'CREDENCIALES' no está configurada.")
         print("💡 SOLUCIÓN:")
         print("💡 1. Ve a tu repositorio en GitHub.")
         print("💡 2. Ve a Settings > Secrets and variables > Actions.")
-        print("💡 3. Crea un secreto nuevo con este nombre exacto: GOOGLE_CREDS_B64")
+        print("💡 3. Crea un secreto nuevo con este nombre exacto: CREDENCIALES")
         print("💡 4. Pega el código gigante que generaste con 'make_secret.py'.")
         exit()
     
@@ -190,7 +190,7 @@ if __name__ == "__main__":
         
     except Exception as e:
         print(f"❌ Fatal: No se pudo conectar a Google Sheet: {e}")
-        print(f"💡 Revisa que el secreto 'GOOGLE_CREDS_B64' esté pegado COMPLETO.")
+        print(f"💡 Revisa que el secreto 'CREDENCIALES' esté pegado COMPLETO.")
         exit()
 
     # 3. Cargar Historial
