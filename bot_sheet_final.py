@@ -10,11 +10,11 @@ from datetime import datetime
 # ==========================================
 # 1. CONFIGURACIÓN (SECRETS Y APIS)
 # ==========================================
-# NOTA: Idealmente, SOVRN_SECRET y REDDIT_PASSWORD deberían ser secretos de GitHub también,
-# pero los dejaré aquí para que el código te funcione al copiar y pegar.
+# IMPORTANTE: He puesto marcadores de posición por seguridad.
+# Vuelve a copiar tus claves reales aquí.
 
-SOVRN_API_KEY = "134070ee62245f1bfe18f4f36288aa7a"
-SOVRN_SECRET = "3077f2bbbca0cf7e5a929176bc6e017b5c10339c"
+SOVRN_API_KEY = "134070ee62245f1bfe18f4f36288aa7a" # Reemplazar si es necesario
+SOVRN_SECRET = "TU_SOVRN_SECRET_AQUI" # Pegar tu secreto real aquí
 SOVRN_URL = "https://shopping-gallery.prd-commerce.sovrnservices.com/ai-orchestration/products"
 SOVRN_HEADERS = {
     "Authorization": f"secret {SOVRN_SECRET}",
@@ -26,9 +26,9 @@ SHEET_KEY = "1AfB-Sdn9ZgZXqfHLDFiZSmIap9WeXnwVzrNT-zKctlM"
 SHEET_NAME = "DailyDoseCoolFinds_Content"
 
 REDDIT_CLIENT_ID = "vBYT7GqUOhaqCTFivCHw6A"
-REDDIT_CLIENT_SECRET = "Z0QhUNoC8WZtR3klaXOcUi9IvRFOyA"
+REDDIT_CLIENT_SECRET = "Z0QhUNoC8WZtR3klaXOcUi9IvRFOyA" # Reemplazar si es necesario
 REDDIT_USERNAME = "amzcoolfinds"
-REDDIT_PASSWORD = "Mamita01@*"
+REDDIT_PASSWORD = "TU_REDDIT_PASSWORD_AQUI" # Pegar tu contraseña real aquí
 FLAIR_ID = "463a2860-dd0e-11f0-a489-92c8b64e1845"
 
 CONTEXT_URLS = [
@@ -153,16 +153,31 @@ if __name__ == "__main__":
     if not b64_creds:
         print("❌ ERROR FATAL: No se encontró el secreto 'CREDENCIALES' en GitHub.")
         print("   Ve a Settings > Secrets > Actions y asegúrate de que el nombre sea EXACTO.")
+        print("   Recuerda que el secreto debe estar codificado en Base64.")
         exit(1)
 
     try:
         # 2. DECODIFICAR Y CONECTAR A SHEETS
-        creds_json = base64.b64decode(b64_creds)
+        print("🔓 Decodificando credenciales...")
         
-        # Guardamos el JSON temporalmente
-        with open('temp_creds.json', 'wb') as f:
-            f.write(creds_json)
+        # Decodificamos de Base64 a String
+        decoded_str = base64.b64decode(b64_creds).decode('utf-8')
         
+        # Convertimos a Diccionario Python
+        creds_dict = json.loads(decoded_str)
+        
+        # --- CORRECCIÓN CRÍTICA PARA ERROR JWT ---
+        # A veces el JSON trae los saltos de línea como \ literal (\\n) en vez de saltos reales (\n).
+        # Esto rompe la firma criptográfica. Lo corregimos forzosamente aquí.
+        if 'private_key' in creds_dict:
+            print("🔧 Corrigiendo formato de clave privada...")
+            creds_dict['private_key'] = creds_dict['private_key'].replace('\\n', '\n')
+        
+        # Escribimos el JSON corregido al archivo temporal
+        with open('temp_creds.json', 'w') as f:
+            json.dump(creds_dict, f)
+        
+        # Conectamos usando el archivo corregido
         gc = gspread.service_account(filename='temp_creds.json')
         sh = gc.open_by_key(SHEET_KEY)
         worksheet = sh.worksheet(SHEET_NAME)
@@ -187,7 +202,10 @@ if __name__ == "__main__":
                 os.remove(img_file)
 
     except Exception as e:
+        # Imprimimos el error completo para depuración
+        import traceback
         print(f"❌ Error inesperado: {e}")
+        print(traceback.format_exc())
     
     finally:
         # 4. LIMPIEZA DE SEGURIDAD
