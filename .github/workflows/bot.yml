@@ -24,12 +24,13 @@ jobs:
         with:
           python-version: '3.9'
 
-      # 3. Instalar las librerías (tu archivo requirements.txt)
+      # 3. Instalar las librerías (Directo en YAML para asegurar que se instalen)
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install requests praw gspread oauth2client
 
       # 4. Ejecutar tu bot con las credenciales
       - name: Run Sovrn Bot
         env:
-          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          # IMPORTANTE: Este nombre debe coincidir exactamente con lo que busca el código Python
+          GOOGLE_CREDS_B64: ${{ secrets.GOOGLE_CREDS_B64 }}
         run: python bot_sheet_final.py
