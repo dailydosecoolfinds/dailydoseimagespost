@@ -13,7 +13,7 @@ from datetime import datetime
 # IMPORTANTE: Vuelve a poner tus claves reales aquí si las borraste en el paso anterior.
 
 SOVRN_API_KEY = "134070ee62245f1bfe18f4f36288aa7a"
-SOVRN_SECRET = "TU_SOVRN_SECRET_AQUI"
+SOVRN_SECRET = "3077f2bbbca0cf7e5a929176bc6e017b5c10339c"
 SOVRN_URL = "https://shopping-gallery.prd-commerce.sovrnservices.com/ai-orchestration/products"
 SOVRN_HEADERS = {
     "Authorization": f"secret {SOVRN_SECRET}",
@@ -27,7 +27,7 @@ SHEET_NAME = "DailyDoseCoolFinds_Content"
 REDDIT_CLIENT_ID = "vBYT7GqUOhaqCTFivCHw6A"
 REDDIT_CLIENT_SECRET = "Z0QhUNoC8WZtR3klaXOcUi9IvRFOyA"
 REDDIT_USERNAME = "amzcoolfinds"
-REDDIT_PASSWORD = "TU_REDDIT_PASSWORD_AQUI"
+REDDIT_PASSWORD = "Mamita01@*"
 FLAIR_ID = "463a2860-dd0e-11f0-a489-92c8b64e1845"
 
 CONTEXT_URLS = [
