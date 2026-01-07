@@ -10,7 +10,6 @@ from datetime import datetime
 # ==========================================
 # 1. CONFIGURACIÓN (SECRETS Y APIS)
 # ==========================================
-# IMPORTANTE: Vuelve a poner tus claves reales aquí si las borraste en el paso anterior.
 
 SOVRN_API_KEY = "134070ee62245f1bfe18f4f36288aa7a"
 SOVRN_SECRET = "3077f2bbbca0cf7e5a929176bc6e017b5c10339c"
@@ -28,7 +27,17 @@ REDDIT_CLIENT_ID = "vBYT7GqUOhaqCTFivCHw6A"
 REDDIT_CLIENT_SECRET = "Z0QhUNoC8WZtR3klaXOcUi9IvRFOyA"
 REDDIT_USERNAME = "amzcoolfinds"
 REDDIT_PASSWORD = "Mamita01@*"
-FLAIR_ID = "463a2860-dd0e-11f0-a489-92c8b64e1845"
+
+# ==========================================
+# CONFIGURACIÓN DE FLAIRS (ACTUALIZADO)
+# ==========================================
+FLAIRS = {
+    "Tech Finds": "3672aefbee316c17096222d11449ace4c1a0eadc",
+    "Home & Lifestyle": "3672aefbee316c17096222d11449ace4c1a0eadc",
+    "Daily Pick": "3672aefbee316c17096222d11449ace4c1a0eadc",
+    "Worth It?": "3672aefbee316c17096222d11449ace4c1a0eadc",
+    "Deals & Discounts": "3672aefbee316c17096222d11449ace4c1a0eadc"
+}
 
 CONTEXT_URLS = [
     "https://www.youtube.com/@EvateExplica",
@@ -86,19 +95,25 @@ def download_image(url, filename="temp_product.jpg"):
         print(f"❌ Error imagen: {e}")
     return None
 
-def update_google_sheet(product, reddit_title, reddit_permalink, worksheet):
+def update_google_sheet(product, reddit_title, reddit_permalink, worksheet, category_name):
     print("📝 Actualizando Google Sheet...")
     try:
         reddit_body = f"[Check Price](https://dailydosecoolfinds.com)"
         row = [
-            "Tech Finds", product['name'], product['imageURL'], reddit_title, reddit_body, product['deepLink'], reddit_permalink
+            category_name,          # <--- Guarda la categoría seleccionada dinámicamente
+            product['name'], 
+            product['imageURL'], 
+            reddit_title, 
+            reddit_body, 
+            product['deepLink'], 
+            reddit_permalink
         ]
         worksheet.append_row(row)
         print("✅ Fila agregada exitosamente.")
     except Exception as e:
         print(f"❌ Error escribiendo en Sheet: {e}")
 
-def post_to_reddit_image(product, image_path, worksheet):
+def post_to_reddit_image(product, image_path, worksheet, flair_id, category_name):
     print("🔌 Publicando en Reddit...")
     try:
         reddit = praw.Reddit(
@@ -110,10 +125,27 @@ def post_to_reddit_image(product, image_path, worksheet):
         )
         subreddit = reddit.subreddit("dailydosecoolfinds")
         clean_title = f"{product['name']} - Just ${product['salePrice']} 🔥"
-        submission = subreddit.submit_image(title=clean_title, image_path=image_path, flair_id=FLAIR_ID)
+        
+        submission = subreddit.submit_image(
+            title=clean_title, 
+            image_path=image_path, 
+            flair_id=flair_id # <--- Usa el ID de la categoría seleccionada
+        )
+        
         permalink = f"https://www.reddit.com{submission.permalink}"
         print(f"✅ POST CREADO: {permalink}")
-        update_google_sheet(product, clean_title, permalink, worksheet)
+
+        # --- COMENTARIO AUTOMÁTICO CON LINK ---
+        print("💬 Publicando comentario de venta...")
+        comment_body = (
+            f"🔗 **Buy Here:** [Check Price on Amazon]({product['deepLink']}) \n\n"
+            f"For more cool finds visit: [DailyDoseCoolFinds](https://dailydosecoolfinds.com)"
+        )
+        submission.reply(comment_body)
+        print("✅ Comentario agregado.")
+        # --------------------------------------
+
+        update_google_sheet(product, clean_title, permalink, worksheet, category_name)
         return True
     except Exception as e:
         print(f"❌ Error Reddit: {e}")
@@ -145,9 +177,6 @@ if __name__ == "__main__":
         # Validación estricta del formato PEM
         if not creds_dict['private_key'].startswith("-----BEGIN PRIVATE KEY-----"):
             print("❌ ERROR CRÍTICO: La clave privada decodificada NO tiene el formato válido.")
-            print(f"🔍 Empieza con: {creds_dict['private_key'][:50]}...")
-            print("🔍 Debería empezar con: -----BEGIN PRIVATE KEY-----")
-            print("SOLUCIÓN: Genera un nuevo JSON en Google Cloud y codifícalo en Base64 nuevamente usando el script 'encoder.py'.")
             exit(1)
 
         print("✅ Clave privada tiene formato válido.")
@@ -162,6 +191,17 @@ if __name__ == "__main__":
         worksheet = sh.worksheet(SHEET_NAME)
         print("✅ Conexión a Google Sheets exitosa.")
 
+        # --- SELECCIÓN DE CATEGORÍA AL AZAR ---
+        # 1. Obtenemos lista de categorías
+        available_categories = list(FLAIRS.keys())
+        # 2. Elegimos una al azar
+        selected_category = random.choice(available_categories)
+        # 3. Obtenemos el ID correspondiente a esa categoría
+        selected_flair_id = FLAIRS[selected_category]
+        
+        print(f"🎨 Categoría seleccionada para este post: {selected_category}")
+        # ----------------------------------------
+
         # Flujo normal
         used_names = get_history_from_sheet(worksheet)
         product = get_random_product(used_names)
@@ -170,7 +210,8 @@ if __name__ == "__main__":
             print(f"🎯 Producto seleccionado: {product['name']}")
             img_file = download_image(product['imageURL'])
             if img_file:
-                post_to_reddit_image(product, img_file, worksheet)
+                # Pasamos los nuevos parámetros: Flair y Categoría
+                post_to_reddit_image(product, img_file, worksheet, selected_flair_id, selected_category)
                 if os.path.exists(img_file): os.remove(img_file)
         else:
             print("😴 No se encontraron productos.")
